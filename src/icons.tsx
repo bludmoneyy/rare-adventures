@@ -1,0 +1,13 @@
+import type {SVGProps} from "react";
+const Icon=({children,...p}:SVGProps<SVGSVGElement>)=><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="square" strokeLinejoin="miter" aria-hidden="true" {...p}>{children}</svg>;
+export const ChevronRight=(p:SVGProps<SVGSVGElement>)=><Icon {...p}><path d="m9 18 6-6-6-6"/></Icon>;
+export const Menu=(p:SVGProps<SVGSVGElement>)=><Icon {...p}><path d="M4 7h16M4 12h16M4 17h16"/></Icon>;
+export const X=(p:SVGProps<SVGSVGElement>)=><Icon {...p}><path d="m6 6 12 12M18 6 6 18"/></Icon>;
+export const Coins=(p:SVGProps<SVGSVGElement>)=><Icon {...p}><ellipse cx="10" cy="7" rx="6" ry="3"/><path d="M4 7v4c0 1.7 2.7 3 6 3s6-1.3 6-3V7M6 15v2c0 1.7 2.7 3 6 3s6-1.3 6-3v-7"/></Icon>;
+export const Castle=(p:SVGProps<SVGSVGElement>)=><Icon {...p}><path d="M4 21V9h4V5l4 3 4-3v4h4v12M8 21v-5h8v5M3 21h18"/></Icon>;
+export const Swords=(p:SVGProps<SVGSVGElement>)=><Icon {...p}><path d="m5 3 14 14M15 3h4v4L7 19H3v-4zM14 16l5 5M16 14l5 5"/></Icon>;
+export const ShoppingBag=(p:SVGProps<SVGSVGElement>)=><Icon {...p}><path d="M5 8h14l-1 13H6L5 8zM9 9V6a3 3 0 0 1 6 0v3"/></Icon>;
+export const Backpack=(p:SVGProps<SVGSVGElement>)=><Icon {...p}><path d="M6 9V7a6 6 0 0 1 12 0v2M5 9h14v12H5zM8 13h8M9 3h6"/></Icon>;
+export const Skull=(p:SVGProps<SVGSVGElement>)=><Icon {...p}><path d="M5 11a7 7 0 1 1 14 0c0 3-1 4-3 5v4H8v-4c-2-1-3-2-3-5z"/><path d="M8 11h2M14 11h2M11 15h2M10 20v-3M14 20v-3"/></Icon>;
+export const Trophy=(p:SVGProps<SVGSVGElement>)=><Icon {...p}><path d="M8 4h8v5a4 4 0 0 1-8 0V4zM8 6H4v2a4 4 0 0 0 4 4M16 6h4v2a4 4 0 0 1-4 4M12 13v5M8 21h8M9 18h6"/></Icon>;
+export const Heart=(p:SVGProps<SVGSVGElement>)=><Icon {...p}><path d="M20 8c0 5-8 11-8 11S4 13 4 8c0-4 5-5 8-1 3-4 8-3 8 1z"/></Icon>;
