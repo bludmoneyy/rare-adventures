@@ -128,6 +128,24 @@ If a player pays exactly once per room, the weighted mean action cost is approxi
 - Durability decreases on clears; death removes inventory. Abandoning preserves durability but never refunds entry.
 - The initial 18,420 RF pool is a demo subsidy, not evidence that the live loop is self-funding.
 
+### Party battle arenas
+
+Party battles reuse the adventure `LandScene` renderer. A fight draws uniformly from the eight lands (Coastal, Garden, Industrial, Market, Mineral, Orbital, Reading, Rooftop) once, then keeps that arena for every action and replay. Up to four pets per side roam within the land’s central walkable area as compact sprites, with HP bars, attack/heal feedback, and knockout states. Hover or keyboard-focus a pet for its name, exact HP, and bonus; the roster below retains full details. Roaming stops when playback is paused or finished, a pet is knocked out, or reduced motion is enabled. Stored `spriteUrl` values are used when present, with the same walking-sprite fallback as Adventures.
+
+A pet gains **10% damage and healing efficiency** when its land matches the arena. **Genesis pets always gain 10%**, regardless of land. The bonuses do not stack: a Genesis pet with a matching land still receives 10%, never 20%.
+
+```text
+multiplier = Genesis OR matching land ? 1.10 : 1.00
+hit = round(max(1, attack after critical, armor and block) × multiplier)
+heal = min(missing HP, round(base Support healing × multiplier))
+```
+
+The rule applies to both sides. It does not change maximum HP, armor, block stats, potion preparation, or wager payouts. Whole-HP rounding can leave very small hits unchanged. This arena bonus belongs to party battles; adventure and raid rules are unchanged.
+
+The local demo roster has preset lands: Generations #184 is Coastal, #409 Garden, and #612 Orbital. These are demo assignments, not verified NFT metadata. Existing saves retain valid land traits; known demo pets inherit their preset if missing, and unknown pets without a land receive no match bonus. Demo waiting squads have stable preset traits; a supplied opponent roster can provide its own collection, land, and sprite. Wallet integration must populate these fields from verified pet metadata rather than the demo defaults.
+
+Combat generates immutable action snapshots once per challenge. Playback supports pause, next action, show result, and replay; reduced-motion users start paused. Each frame reflects the actual post-action HP and reveals the corresponding log entries. Potions and wagers settle once at challenge time, including if the player leaves playback; replay and skipping never repeat settlement or reroll the land. Wager results appear with the final outcome.
+
 ### Elemental gear
 
 Reward weapons and armor can carry Water, Earth, Wind, Fire, Electricity, or Curse modifiers. The counter cycle is `Water → Fire → Earth → Electricity → Wind → Curse → Water`. A weapon whose modifier counters the encounter gains 50% of its base power as bonus strike; armor gains the same amount as bonus guard. Modifiers are never attached to the ordinary shop catalog. They enter the economy only through adventure discoveries, eligible raid drops, or the three-item rare shelf, which rotates deterministically at 00:00 UTC each day.

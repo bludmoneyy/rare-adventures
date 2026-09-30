@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   Backpack,
   ChevronRight,
@@ -11,11 +11,14 @@ import {
 import menuIcon from "./assets/svgs/menu.svg";
 import xIcon from "./assets/svgs/x.svg";
 import friendsIcon from "./assets/svgs/friends.svg";
-import shopIcon from "./assets/svgs/toolbox.svg";
+import docsIcon from "./assets/svgs/toolbox.svg";
+import shopIcon from "./assets/svgs/fa-shop.svg";
+import guildIcon from "./assets/svgs/fa-shield-halved.svg";
 import homeMenuIcon from "./assets/svgs/fa-house.svg";
 import marketMenuIcon from "./assets/svgs/fa-store.svg";
 import adventureMenuIcon from "./assets/svgs/fa-map-location-dot.svg";
-import battleMenuIcon from "./assets/svgs/fa-khanda.svg";
+import guildWarIcon from "./assets/svgs/fa-khanda.svg";
+import battleMenuIcon from "./assets/svgs/fa-hand-fist.svg";
 import raidMenuIcon from "./assets/svgs/fa-dungeon.svg";
 import coastalLand from "./assets/lands/coastal.svg";
 import gardenLand from "./assets/lands/garden.svg";
@@ -25,7 +28,7 @@ import mineralLand from "./assets/lands/mineral.svg";
 import orbitalLand from "./assets/lands/orbital.svg";
 import readingLand from "./assets/lands/reading.svg";
 import rooftopLand from "./assets/lands/rooftop.svg";
-const LAND_ART: Record<string, string> = {
+const LAND_ART = {
   Coastal: coastalLand,
   Garden: gardenLand,
   Industrial: industrialLand,
@@ -35,6 +38,20 @@ const LAND_ART: Record<string, string> = {
   Reading: readingLand,
   Rooftop: rooftopLand,
 };
+type ArenaLand = keyof typeof LAND_ART;
+const ARENA_LANDS = Object.keys(LAND_ART) as ArenaLand[];
+const isArenaLand = (land: unknown): land is ArenaLand =>
+  typeof land === "string" && ARENA_LANDS.includes(land as ArenaLand);
+// The local demo roster has preset traits; unknown saved pets receive no match bonus.
+const DEMO_PET_LANDS: Record<string, ArenaLand> = {
+  "gen-184": "Coastal", "gen-409": "Garden", "gen-612": "Orbital",
+};
+const petLand = (friend: Friend): ArenaLand | undefined =>
+  isArenaLand(friend.land) ? friend.land : DEMO_PET_LANDS[friend.id];
+const battleEfficiency = (pet: { collection?: string; land?: string }, arena: ArenaLand) =>
+  pet.collection === "Genesis" || pet.land === arena ? 1.1 : 1;
+const efficientAmount = (amount: number, efficiency: number) => Math.round(amount * efficiency);
+
 const ECONOMY = {
   startingPlayerBalance: 250,
   startingRewardPool: 18420,
@@ -61,8 +78,9 @@ function rewardRange(dungeon: Dungeon): [number, number] {
   return [min, max];
 }
 function LandScene(
-  { dungeon, friend, hp, maxHp }: {
-    dungeon: Dungeon;
+  { dungeon, friend, hp, maxHp, children }: {
+    dungeon: Pick<Dungeon, "scenery">;
+    children?: ReactNode;
     friend?: Friend;
     hp?: number;
     maxHp?: number;
@@ -96,7 +114,7 @@ function LandScene(
     >
       <img
         className="chain-land"
-        src={LAND_ART[dungeon.scenery]}
+        src={LAND_ART[dungeon.scenery as ArenaLand]}
         alt={`${dungeon.scenery} land`}
       />
       {friend && (
@@ -127,6 +145,7 @@ function LandScene(
           </div>
         </div>
       )}
+      {children}
       <div className="land-label">
         <b>{dungeon.scenery}</b>
       </div>
@@ -190,6 +209,7 @@ type Friend = {
   family: string;
   color: string;
   spriteUrl?: string;
+  land?: ArenaLand;
   inventory: Item[];
   role?: BattleRole;
   runs: number;
@@ -243,7 +263,14 @@ type Run = {
   log: string[];
   equipment: string[];
 };
-type BattleUnit = {
+type BattlePet = {
+  collection: Friend["collection"];
+  land?: ArenaLand;
+  spriteUrl?: string;
+  color?: string;
+};
+type BattleUnit = BattlePet & {
+  efficiency: number;
   id: string;
   name: string;
   role: BattleRole;
@@ -267,6 +294,7 @@ type WaitingSquad = {
   roles: BattleRole[];
   power: number;
   members?: string[];
+  pets?: BattlePet[];
   isOwn?: boolean;
   wager: BattleWager;
 };
@@ -316,7 +344,18 @@ type Guild = {
   score: number;
   emblem: string;
 };
+type BattleFrame = {
+  units: BattleUnit[];
+  message: string;
+  logCount: number;
+  actorId?: string;
+  targetId?: string;
+  kind: "ready" | "attack" | "heal" | "finished";
+};
 type BattleResult = {
+  settlement?: string;
+  arena: ArenaLand;
+  frames: BattleFrame[];
   winner: "player" | "enemy" | "draw";
   log: string[];
   player: BattleUnit[];
@@ -1327,6 +1366,11 @@ function battleStats(friend: Friend): BattleUnit {
   return {
     id: friend.id,
     name: friend.name,
+    collection: friend.collection,
+    land: petLand(friend),
+    spriteUrl: friend.spriteUrl,
+    color: friend.color,
+    efficiency: 1,
     role,
     attack: 6 + weapon + roleAttack,
     armor: Math.floor(armor / 2) + (role === "defender" ? 4 : 0),
@@ -1483,12 +1527,20 @@ function simulateBattle(
   friends: Friend[],
   squad: WaitingSquad,
   potions: Item[] = [],
+  arena: ArenaLand = ARENA_LANDS[Math.floor(Math.random() * ARENA_LANDS.length)],
 ): BattleResult {
   const player = friends.map(battleStats),
     enemy = squad.roles.map((role, i) => {
       const armor = Math.floor(squad.power / 4) + (role === "defender" ? 3 : 0),
         maxHp = 32 + squad.power + armor + (role === "defender" ? 10 : 0);
       return {
+        // Waiting squads are demo opponents with stable identity traits.
+        ...(squad.pets?.[i] ?? {
+          collection: "Generations" as const,
+          land: ARENA_LANDS[(Array.from(squad.id).reduce((n, c) => n + c.charCodeAt(0), 0) + i) % ARENA_LANDS.length],
+          color: ["#ffb7d5", "#a9e8d2", "#ffd59f", "#c9b8ff"][i % 4],
+        }),
+        efficiency: 1,
         id: `${squad.id}-${i}`,
         name: squad.members?.[i] ?? `${squad.owner.split(".")[0]} #${i + 1}`,
         role,
@@ -1526,6 +1578,17 @@ function simulateBattle(
       ...enemySynergy.map((x) => `${squad.owner} activated ${x}.`),
     ];
   potions.forEach((p) => applyBattlePotion(player, p, log));
+  log.push(`ARENA · ${arena}. Matching land or Genesis: +10% damage and healing (non-stacking).`);
+  [...player, ...enemy].forEach((unit) => {
+    unit.efficiency = battleEfficiency(unit, arena);
+    if (unit.efficiency > 1) log.push(`${unit.name}: +10% efficiency · ${unit.collection === "Genesis" ? "Genesis" : `${arena} land match`}.`);
+  });
+  const frames: BattleFrame[] = [];
+  const record = (kind: BattleFrame["kind"], message: string, actorId?: string, targetId?: string) => {
+    frames.push({ kind, message, actorId, targetId, logCount: log.length,
+      units: [...player, ...enemy].map((unit) => ({ ...unit })) });
+  };
+  record("ready", `The parties enter the ${arena} arena.`);
   for (
     let round = 1;
     round <= 30 && player.some((u) => u.hp > 0) && enemy.some((u) => u.hp > 0);
@@ -1549,10 +1612,11 @@ function simulateBattle(
                 : 0,
               heal = Math.min(
                 ally.maxHp - ally.hp,
-                5 + Math.floor(unit.attack / 4) + bonus,
+                efficientAmount(5 + Math.floor(unit.attack / 4) + bonus, unit.efficiency),
               );
             ally.hp += heal;
             log.push(`${unit.name} restored ${heal} HP to ${ally.name}.`);
+            record("heal", log.at(-1)!, unit.id, ally.id);
             continue;
           }
         }
@@ -1563,17 +1627,18 @@ function simulateBattle(
             : defender ?? living[0],
           crit = unit.role === "assassin" && (round + index) % 3 === 0,
           blocked = (round + index + target.block) % 5 === 0,
-          damage = Math.max(
+          damage = efficientAmount(Math.max(
             1,
             (crit ? Math.round(unit.attack * 1.65) : unit.attack) -
               target.armor - (blocked ? target.block : 0),
-          );
+          ), unit.efficiency);
         target.hp = Math.max(0, target.hp - damage);
         log.push(
           `${unit.name} ${crit ? "crit " : ""}hit ${target.name} for ${damage}${
             blocked ? " after a block" : ""
           }.${target.hp ? ` ${target.hp} HP remains.` : " Knockout."}`,
         );
+        record("attack", log.at(-1)!, unit.id, target.id);
       }
     }
   }
@@ -1591,7 +1656,8 @@ function simulateBattle(
       ? "DEFEAT · Your squad was defeated."
       : "DRAW · The battle reached its round limit.",
   );
-  return { winner, log, player, enemy, synergies: playerSynergy };
+  record("finished", log.at(-1)!);
+  return { winner, log, player, enemy, synergies: playerSynergy, arena, frames };
 }
 function makeEnemy(tier: number): Enemy {
   const template = ENEMIES[Math.floor(Math.random() * ENEMIES.length)],
@@ -1690,7 +1756,7 @@ function productionFriend(friend: Friend): Friend {
       );
       return catalog ? { ...item, art: catalog.art } : item;
     });
-  return { ...friend, collection, name: `${collection} #${token}`, inventory };
+  return { ...friend, collection, land: petLand(friend), name: `${collection} #${token}`, inventory };
 }
 function load(): Player {
   try {
@@ -1824,11 +1890,6 @@ export default function App() {
     if (wager.type === "rf") {
       const delta = outcome === "player" ? amount : -amount;
       setPlayer((p) => ({ ...p, rf: Math.max(0, p.rf + delta) }));
-      setToast(
-        outcome === "player"
-          ? `Won ${amount} $RF from the battle pot`
-          : `Lost ${amount} $RF`,
-      );
       return;
     }
     if (!stake) return;
@@ -1851,11 +1912,6 @@ export default function App() {
         };
       }),
     }));
-    setToast(
-      outcome === "player"
-        ? `Won ${wager.item.name}`
-        : `Lost ${stake.item.name}`,
-    );
   }
   function settleRaid(friendId: string, fee: number, result: RaidResult) {
     const tithe = titheAmount(fee, player);
@@ -2262,102 +2318,106 @@ export default function App() {
         />
       )}
       <aside className="nav-drawer" data-open={menu || undefined}>
-        <nav>
-          <Nav
-            icon={homeMenuIcon}
-            label="Home"
-            current={page === "home"}
-            onClick={() => nav("home")}
-          />
-          <Nav
-            icon={friendsIcon}
-            label="Friends"
-            current={page === "friends"}
-            onClick={() => nav("friends")}
-          />
-          <Nav
-            icon={friendsIcon}
-            label="Guild"
-            current={page === "guild"}
-            onClick={() => nav("guild")}
-          />
-          <Nav
-            icon={battleMenuIcon}
-            label="Guild Wars"
-            current={page === "guild_wars"}
-            onClick={() => nav("guild_wars")}
-          />
-          <Nav
-            icon={shopIcon}
-            label="Shops"
-            current={page === "shop"}
-            onClick={() => nav("shop")}
-          />
-          <Nav
-            icon={marketMenuIcon}
-            label="Marketplace"
-            current={page === "market"}
-            onClick={() => nav("market")}
-          />
-          <Nav
-            icon={adventureMenuIcon}
-            label="Adventures"
-            current={page === "dungeons" || page === "run"}
-            onClick={() => nav("dungeons")}
-          />
-          <Nav
-            icon={battleMenuIcon}
-            label="Battles"
-            current={page === "battle"}
-            onClick={() => nav("battle")}
-          />
-          <Nav
-            icon={raidMenuIcon}
-            label="Raids"
-            current={page === "raids"}
-            onClick={() => nav("raids")}
-          />
-          <Nav
-            icon={shopIcon}
-            label="Docs"
-            current={page === "docs"}
-            onClick={() => nav("docs")}
-          />
-          <Nav
-            icon={friendsIcon}
-            label="Metrics"
-            current={page === "metrics"}
-            onClick={() => nav("metrics")}
-          />
-        </nav>
-        <div className="drawer-friend">
-          <small>ACTIVE FRIEND</small>
-          <FriendFace friend={friend} />
-          <b>{friend.name}</b>
-          <span>
-            {friend.collection}{" "}
-            {friend.collection === "Generation" ? friend.generation : ""}
-          </span>
+        <div className="drawer-content">
+          <nav>
+            <Nav
+              icon={homeMenuIcon}
+              label="Home"
+              current={page === "home"}
+              onClick={() => nav("home")}
+            />
+            <Nav
+              icon={friendsIcon}
+              label="Friends"
+              current={page === "friends"}
+              onClick={() => nav("friends")}
+            />
+            <Nav
+              icon={shopIcon}
+              label="Shops"
+              current={page === "shop"}
+              onClick={() => nav("shop")}
+            />
+            <Nav
+              icon={adventureMenuIcon}
+              label="Adventures"
+              current={page === "dungeons" || page === "run"}
+              onClick={() => nav("dungeons")}
+            />
+            <Nav
+              icon={battleMenuIcon}
+              label="Battles"
+              current={page === "battle"}
+              onClick={() => nav("battle")}
+            />
+            <Nav
+              icon={raidMenuIcon}
+              label="Raids"
+              current={page === "raids"}
+              onClick={() => nav("raids")}
+            />
+            <Nav
+              icon={marketMenuIcon}
+              label="Marketplace"
+              current={page === "market"}
+              onClick={() => nav("market")}
+            />
+            <Nav
+              icon={guildIcon}
+              label="Guild"
+              current={page === "guild"}
+              onClick={() => nav("guild")}
+            />
+            <Nav
+              icon={guildWarIcon}
+              label="Guild Wars"
+              current={page === "guild_wars"}
+              onClick={() => nav("guild_wars")}
+            />
+            <Nav
+              icon={friendsIcon}
+              label="Metrics"
+              current={page === "metrics"}
+              onClick={() => nav("metrics")}
+            />
+            <Nav
+              icon={docsIcon}
+              label="Docs"
+              current={page === "docs"}
+              onClick={() => nav("docs")}
+            />
+          </nav>
+          <div className="drawer-friend">
+            <small>ACTIVE FRIEND</small>
+            <FriendFace friend={friend} />
+            <b>{friend.name}</b>
+            <span>
+              {friend.collection}{" "}
+              {friend.collection === "Generation" ? friend.generation : ""}
+            </span>
+          </div>
         </div>
-        <button
-          className="theme-toggle"
-          aria-pressed={darkMode}
-          onClick={() => setDarkMode((current) => !current)}
-        >
-          <span>{darkMode ? "☀" : "☾"}</span>
-          <b>{darkMode ? "USE LIGHT MODE" : "USE DARK MODE"}</b>
-          <i aria-hidden="true"><em /></i>
-        </button>
-        <button
-          className="reset"
-          onClick={() => {
-            localStorage.removeItem("rare-adventures-save-v1");
-            setPlayer(starter);
-            setToast("Demo reset");
-          }}
-        >
-          RESET DEMO
-        </button>
+        <div className="drawer-footer">
+          <button
+            className="reset"
+            onClick={() => {
+              localStorage.removeItem("rare-adventures-save-v1");
+              setPlayer(starter);
+              setToast("Demo reset");
+            }}
+          >
+            RESET DEMO
+          </button>
+          <button
+            className="theme-toggle"
+            aria-pressed={darkMode}
+            onClick={() => setDarkMode((current) => !current)}
+          >
+            <span>{darkMode ? "☀" : "☾"}</span>
+            <b>{darkMode ? "USE LIGHT MODE" : "USE DARK MODE"}</b>
+            <i aria-hidden="true"><em /></i>
+          </button>
+        </div>
       </aside>
       <main>
         {page === "home" && (
@@ -2405,7 +2465,7 @@ export default function App() {
         )} {page === "docs" && (
           <EconomyDocs go={nav} />
         )} {page === "metrics" && (
-          <GameMetrics player={player} go={nav} />
+          <GameMetrics go={nav} />
         )} {page === "dungeons" && (
           <Dungeons
             selected={selectedDungeon}
@@ -2617,16 +2677,16 @@ function Home(
             go: guildWars,
           }, {
             n: "09",
+            title: "VIEW GAME METRICS",
+            copy:
+              "Explore project-wide game content, available gear, and RF economy settings.",
+            go: metrics,
+          }, {
+            n: "10",
             title: "READ THE ECONOMY DOCS",
             copy:
               "Understand RF flows, rewards, sinks, guilds, and the ecosystem flywheel.",
             go: docs,
-          }, {
-            n: "10",
-            title: "VIEW GAME METRICS",
-            copy:
-              "Review RF activity, adventure results, purchases, and each Friend's progress.",
-            go: metrics,
           }].map((x) => (
             <button className="rule-card" key={x.n} onClick={x.go}>
               <b>{x.n}</b>
@@ -2640,78 +2700,41 @@ function Home(
     </section>
   );
 }
-function GameMetrics(
-  { player, go }: { player: Player; go: (page: Page) => void },
-) {
-  const total = (field: "earnedRf" | "spentRf" | "burnedRf" | "runs" | "wins" | "deaths" | "itemsBought") =>
-      player.friends.reduce((sum, friend) => sum + (friend[field] || 0), 0),
-    earned = total("earnedRf"),
-    spent = total("spentRf"),
-    burned = total("burnedRf"),
-    adventures = total("runs"),
-    clears = total("wins"),
-    deaths = total("deaths"),
-    itemsBought = total("itemsBought"),
-    clearRate = adventures ? Math.round(clears / adventures * 100) : 0,
-    net = earned - spent;
+function GameMetrics({ go }: { go: (page: Page) => void }) {
   const cards = [
-    { label: "RF EARNED", value: `${earned.toLocaleString()} $RF`, icon: <Coins /> },
-    { label: "RF SPENT", value: `${spent.toLocaleString()} $RF`, icon: <Coins /> },
-    { label: "RF BURNED", value: `${burned.toLocaleString()} $RF`, icon: <Coins /> },
-    { label: "ADVENTURES", value: adventures.toLocaleString(), icon: <Swords /> },
-    { label: "CLEARS", value: clears.toLocaleString(), icon: <Trophy /> },
-    { label: "DEATHS", value: deaths.toLocaleString(), icon: <Skull /> },
-    { label: "ITEMS BOUGHT", value: itemsBought.toLocaleString(), icon: <Backpack /> },
-    { label: "CLEAR RATE", value: `${clearRate}%`, icon: <Trophy /> },
+    { label: "ADVENTURE LOCATIONS", value: DUNGEONS.length, icon: <Swords /> },
+    { label: "GUILDS", value: GUILDS.length, icon: <Trophy /> },
+    { label: "ELEMENT TYPES", value: ELEMENTS.length, icon: <Heart /> },
+    { label: "POTION EFFECTS", value: POTION_KINDS.length, icon: <Heart /> },
+    { label: "WEAPONS", value: GOODS.filter((item) => item.kind === "weapon").length, icon: <Swords /> },
+    { label: "ARMOR", value: GOODS.filter((item) => item.kind === "armor").length, icon: <Backpack /> },
+    { label: "DEFENSE ITEMS", value: GOODS.filter((item) => item.kind === "defense").length, icon: <Backpack /> },
+    { label: "POTION VARIANTS", value: POTIONS.length, icon: <Heart /> },
   ];
   return (
     <section className="page metrics-page">
       <div className="page-title">
-        <span>YOUR JOURNEY</span>
+        <span>PROJECT OVERVIEW</span>
         <h1>GAME METRICS.</h1>
-        <p>
-          A complete view of your RF activity, adventure outcomes, preparation,
-          and the progress carried by each Friend.
-        </p>
+        <p>Project-wide game content and RF economy settings.</p>
+        <p>Catalog totals and configured values; live project-wide activity is not yet available.</p>
       </div>
       <div className="metrics-balance">
-        <span><small>CURRENT WALLET</small><b>{player.rf.toLocaleString()} $RF</b></span>
-        <span><small>NET ADVENTURE POSITION</small><b data-negative={net < 0 || undefined}>{net >= 0 ? "+" : ""}{net.toLocaleString()} $RF</b></span>
-        <span><small>GLOBAL REWARD POOL</small><b>{player.pool.toLocaleString()} $RF</b></span>
-        <span><small>GUILD CONTRIBUTION</small><b>{(player.guildTithe || 0).toLocaleString()} $RF</b></span>
+        <span><small>INITIAL REWARD POOL</small><b>{ECONOMY.startingRewardPool.toLocaleString()} $RF</b></span>
+        <span><small>BASE SPEND TO POOL</small><b>{ECONOMY.poolContributionRate * 100}%</b></span>
+        <span><small>BASE SPEND TO SINK</small><b>{(1 - ECONOMY.poolContributionRate) * 100}%</b></span>
+        <span><small>GUILD CYCLE RESET</small><b>MONDAY</b></span>
       </div>
       <div className="metrics-card-grid">
         {cards.map((card) => (
           <article key={card.label}>
             <i>{card.icon}</i>
-            <span><small>{card.label}</small><b>{card.value}</b></span>
+            <span><small>{card.label}</small><b>{card.value.toLocaleString()}</b></span>
           </article>
         ))}
       </div>
-      <section className="friend-metrics">
-        <div className="battle-heading"><h2>FRIEND BREAKDOWN</h2><b>{player.friends.length} FRIENDS</b></div>
-        <div>
-          {player.friends.map((friend) => {
-            const rate = friend.runs ? Math.round(friend.wins / friend.runs * 100) : 0;
-            return (
-              <article key={friend.id}>
-                <FriendFace friend={friend} />
-                <span><small>{friend.collection} · {friend.family}</small><b>{friend.name}</b><em>{friend.inventory.length} ITEMS HELD</em></span>
-                <dl>
-                  <div><dt>RUNS</dt><dd>{friend.runs}</dd></div>
-                  <div><dt>CLEARS</dt><dd>{friend.wins}</dd></div>
-                  <div><dt>RATE</dt><dd>{rate}%</dd></div>
-                  <div><dt>DEATHS</dt><dd>{friend.deaths || 0}</dd></div>
-                  <div><dt>EARNED</dt><dd>{(friend.earnedRf || 0).toLocaleString()} RF</dd></div>
-                  <div><dt>SPENT</dt><dd>{(friend.spentRf || 0).toLocaleString()} RF</dd></div>
-                </dl>
-              </article>
-            );
-          })}
-        </div>
-      </section>
       <div className="metrics-actions">
-        <button className="primary" onClick={() => go("dungeons")}>START AN ADVENTURE <ChevronRight /></button>
+        <button className="primary" onClick={() => go("dungeons")}>EXPLORE ADVENTURES <ChevronRight /></button>
         <button onClick={() => go("docs")}>UNDERSTAND THE ECONOMY <ChevronRight /></button>
       </div>
     </section>
@@ -2811,7 +2834,9 @@ function EconomyDocs({ go }: { go: (page: Page) => void }) {
         <div className="docs-grid two">
           <article><h3>MARKETPLACE</h3><p>Adventure and raid loot can be listed. A sale charges 5%, rounded up to at least 1 RF. The seller receives price minus fee; the fee enters the reward pool.</p><code>seller proceeds = price − market fee</code></article>
           <article><h3>FOUR-WALLET RAIDS</h3><p>Four equal entries create the raid pot. Successful payout depends on raw-power contribution and the difficulty multiplier. Failed pots stay in the ecosystem.</p><code>payout = pot × contribution × multiplier</code></article>
-          <article><h3>PARTY BATTLES</h3><p>Roles, equipment, composition, potions, and optional wagers create competitive item utility. RF wagers redistribute RF between players rather than feeding the pool.</p></article>
+          <article><h3>PARTY BATTLES</h3><p>Roles, equipment, composition, potions, and optional wagers create competitive item utility. RF wagers redistribute RF between players rather than feeding the pool.</p><p>Every match randomly selects one of eight equally likely arenas: {ARENA_LANDS.join(", ")}. The land stays fixed for the entire fight. Each pet appears in the arena with a health bar that follows attacks, blocks, critical hits, healing, and knockouts.</p></article>
+          <article><h3>ARENA EFFICIENCY</h3><p>A pet whose land trait matches the arena gains 10% efficiency. Genesis pets always gain the same 10%, on every land. These bonuses do not stack. The bonus multiplies damage after armor and block, and Support healing, then rounds to the nearest whole HP. Healing cannot exceed maximum HP. Health, defense stats, potion preparation, and wager payouts do not receive an extra multiplier.</p><code>damage / healing = round(base amount × 1.10)</code><p>This rule applies to both sides of party battles. The local demo uses preset land traits; saved pets without a known land have no match bonus. Adventure and raid rules remain as described in their sections.</p></article>
+          <article><h3>WATCH THE FIGHT</h3><p>Combat resolves once when you challenge a squad. The arena plays those recorded actions in order. Pause, advance one action, skip to the result, or replay without rerolling the land or consuming potions and settling wagers again. Reduced-motion users begin with playback paused.</p></article>
           <article><h3>GUILD WARS</h3><p>Adventure clears, raids, wins, sales, and preparation produce weekly points. A square-root population adjustment helps smaller guilds compete without erasing scale.</p><code>adjusted = raw × √(largest ÷ members)</code></article>
         </div>
         <div className="docs-callout guild-doc"><b>OPTIONAL GUILD TITHE</b><p>A player may add 0–20% on top of eligible purchases. 80% is recorded for the guild treasury and 20% goes to the global reward pool. The original price and its normal 50/50 split do not change.</p></div>
@@ -3504,6 +3529,123 @@ function WagerLabel({ wager }: { wager: BattleWager }) {
   }
   return <span className="wager-label">NO WAGER · FRIENDLY BATTLE</span>;
 }
+// Feet stay inside the same central ellipse used by adventure roaming.
+function battleRoamPosition(side: BattleUnit["side"], index: number, count: number) {
+  const x = count > 2 ? (side === "player" ? 31 : 57) + (index % 2) * 12 : side === "player" ? 35 : 65,
+    y = count === 1 ? 55 : 49 + (count > 2 ? Math.floor(index / 2) : index) * 12;
+  return { x, y };
+}
+function RoamingBattlePet({ unit, index, count, moving, step, acting, hit, healed }: {
+  unit: BattleUnit; index: number; count: number; moving: boolean; step: number;
+  acting: boolean; hit: boolean; healed: boolean;
+}) {
+  const [position, setPosition] = useState(() => battleRoamPosition(unit.side, index, count)),
+    [facing, setFacing] = useState(unit.side === "player" ? 1 : -1);
+  useEffect(() => {
+    if (!moving) return;
+    const media = window.matchMedia("(prefers-reduced-motion: reduce)");
+    let timer: number | undefined;
+    const roam = () => {
+      const home = battleRoamPosition(unit.side, index, count),
+        angle = Math.random() * Math.PI * 2, radius = Math.sqrt(Math.random()),
+        x = home.x + Math.cos(angle) * radius * (count === 1 ? 8 : 1.8),
+        y = home.y + Math.sin(angle) * radius * (count === 1 ? 5 : .6);
+      setPosition((previous) => {
+        setFacing(x < previous.x ? -1 : 1);
+        return { x, y };
+      });
+    };
+    const update = () => {
+      window.clearInterval(timer);
+      if (!media.matches) { roam(); timer = window.setInterval(roam, 2800); }
+    };
+    update();
+    media.addEventListener("change", update);
+    return () => { window.clearInterval(timer); media.removeEventListener("change", update); };
+  }, [moving, unit.side, index, count]);
+  return (
+    <div className="arena-pet" data-side={unit.side} tabIndex={0}
+      aria-label={`${unit.name}, ${unit.hp}/${unit.maxHp} HP${unit.efficiency > 1 ? ", plus 10% efficiency" : ""}`}
+      data-down={unit.hp === 0 || undefined} data-acting={acting || undefined}
+      data-hit={hit || undefined} data-healed={healed || undefined}
+      style={{ left: `${position.x}%`, top: `${position.y}%` }}>
+      <div className="arena-health">
+        <span>{unit.name} · {unit.hp}/{unit.maxHp} HP{unit.efficiency > 1 ? " · +10%" : ""}</span>
+        <div role="progressbar" aria-label={`${unit.name} health`} aria-valuemin={0} aria-valuemax={unit.maxHp} aria-valuenow={unit.hp}>
+          <i style={{ width: `${unit.hp / unit.maxHp * 100}%` }} />
+        </div>
+      </div>
+      <div className="arena-sprite" key={`${unit.id}-${step}`}>
+        <img style={{ transform: `scaleX(${facing})` }} src={unit.spriteUrl ?? "/friend-walk-sprite.svg"} alt="" />
+      </div>
+    </div>
+  );
+}
+
+function BattleReplay({ result, onClose }: { result: BattleResult; onClose: () => void }) {
+  const [step, setStep] = useState(0),
+    [playing, setPlaying] = useState(() => !window.matchMedia("(prefers-reduced-motion: reduce)").matches),
+    frame = result.frames[step],
+    finished = step === result.frames.length - 1;
+  useEffect(() => {
+    if (!playing || finished) return;
+    const timer = window.setTimeout(() => setStep((current) => Math.min(current + 1, result.frames.length - 1)), 850);
+    return () => window.clearTimeout(timer);
+  }, [playing, finished, step, result]);
+  const advance = () => { setPlaying(false); setStep((current) => Math.min(current + 1, result.frames.length - 1)); };
+  return (
+    <section className="page battle-page">
+      <button className="battle-back" onClick={onClose}>← BATTLE BROWSER</button>
+      <div className={`battle-result ${finished ? result.winner : "playing"}`}>
+        <span>{finished ? result.winner === "player" ? "VICTORY" : result.winner === "enemy" ? "DEFEAT" : "DRAW" : "PARTY BATTLE"}</span>
+        <h1>{finished ? result.winner === "player" ? "YOUR PARTY PREVAILED." : result.winner === "enemy" ? "THE WAITING SQUAD WON." : "NO SQUAD YIELDED." : `${result.arena.toUpperCase()} ARENA`}</h1>
+        {finished && result.settlement && <p className="arena-settlement">{result.settlement}</p>}
+        <p className="arena-rule">Matching land or Genesis · +10% damage and healing</p>
+        <div className="battle-arena" data-team-size={result.player.length}>
+          <LandScene dungeon={{ scenery: result.arena }}>
+            {frame.units.map((unit) => {
+              const team = frame.units.filter((pet) => pet.side === unit.side);
+              return <RoamingBattlePet key={unit.id} unit={unit}
+                index={team.findIndex((pet) => pet.id === unit.id)} count={team.length}
+                moving={playing && !finished && unit.hp > 0} step={step}
+                acting={frame.actorId === unit.id}
+                hit={frame.targetId === unit.id && frame.kind === "attack"}
+                healed={frame.targetId === unit.id && frame.kind === "heal"} />;
+            })}
+          </LandScene>
+        </div>
+        <p className="arena-event" role="status" aria-live="polite">{frame.message}</p>
+        <div className="arena-controls">
+          <button onClick={() => { if (finished) setStep(0); setPlaying((current) => finished ? true : !current); }}>
+            {finished ? "REPLAY" : playing ? "PAUSE" : "PLAY"}
+          </button>
+          <button onClick={advance} disabled={finished}>NEXT ACTION</button>
+          <button onClick={() => { setPlaying(false); setStep(result.frames.length - 1); }} disabled={finished}>SHOW RESULT</button>
+          <span>{step}/{result.frames.length - 1} ACTIONS</span>
+        </div>
+        <div className="battle-survivors arena-rosters">
+          {(["player", "enemy"] as const).map((side) => (
+            <div key={side}>
+              <small>{side === "player" ? "YOUR PARTY" : "OPPONENT"}</small>
+              {frame.units.filter((unit) => unit.side === side).map((unit) => (
+                <div className="arena-roster-pet" key={unit.id}>
+                  <b data-down={unit.hp === 0 || undefined}>{unit.name} · {unit.hp}/{unit.maxHp} HP</b>
+                  <span>{unit.role} · {unit.collection === "Genesis" ? "Genesis · +10% on every land" : `${unit.land ?? "Land unknown"} · ${unit.efficiency > 1 ? "+10% land match" : "no arena bonus"}`}</span>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+        <div className="battle-terminal">
+          <div><i /><i /><i /><b>AUTO-BATTLE LOG</b></div>
+          {result.log.slice(0, frame.logCount).map((line, index) => <p key={index}><span>›</span> {line}</p>)}
+        </div>
+        {finished && <button className="primary" onClick={onClose}>FIND ANOTHER BATTLE</button>}
+      </div>
+    </section>
+  );
+}
+
 function Battle(
   { player, assignRole, consumePotions, settleWager }: {
     player: Player;
@@ -3575,6 +3717,13 @@ function Battle(
         squad,
         loadout.map((x) => x.item),
       );
+      nextResult.settlement = nextResult.winner === "draw"
+        ? "Draw · wager returned."
+        : squad.wager.type === "none"
+        ? "Friendly battle · no wager."
+        : squad.wager.type === "rf"
+        ? `${nextResult.winner === "player" ? "Won" : "Lost"} ${amount} $RF.`
+        : `${nextResult.winner === "player" ? "Won" : "Lost"} ${nextResult.winner === "player" ? squad.wager.item.name : stake!.item.name}.`;
       setResult(nextResult);
       consumePotions(loadout);
       settleWager(nextResult.winner, squad.wager, amount, stake);
@@ -3617,68 +3766,13 @@ function Battle(
         roles: party.map((f) => f.role ?? "fighter"),
         power,
         members: party.map((f) => f.name),
+        pets: units.map(({ collection, land, spriteUrl, color }) => ({ collection, land, spriteUrl, color })),
         isOwn: true,
         wager,
       });
     };
   if (result) {
-    return (
-      <section className="page battle-page">
-        <button className="battle-back" onClick={() => setResult(null)}>
-          ← BATTLE BROWSER
-        </button>
-        <div className={`battle-result ${result.winner}`}>
-          <span>
-            {result.winner === "player"
-              ? "VICTORY"
-              : result.winner === "enemy"
-              ? "DEFEAT"
-              : "DRAW"}
-          </span>
-          <h1>
-            {result.winner === "player"
-              ? "YOUR PARTY PREVAILED."
-              : result.winner === "enemy"
-              ? "THE WAITING SQUAD WON."
-              : "NO SQUAD YIELDED."}
-          </h1>
-          <div className="battle-survivors">
-            <div>
-              <small>YOUR PARTY</small>
-              {result.player.map((u) => (
-                <b key={u.id} data-down={!u.hp || undefined}>
-                  {u.name} · {u.hp}/{u.maxHp} HP
-                </b>
-              ))}
-            </div>
-            <div>
-              <small>OPPONENT</small>
-              {result.enemy.map((u) => (
-                <b key={u.id} data-down={!u.hp || undefined}>
-                  {u.name} · {u.hp}/{u.maxHp} HP
-                </b>
-              ))}
-            </div>
-          </div>
-          <div className="battle-terminal">
-            <div>
-              <i />
-              <i />
-              <i />
-              <b>AUTO-BATTLE LOG</b>
-            </div>
-            {result.log.map((line, i) => (
-              <p key={i}>
-                <span>›</span> {line}
-              </p>
-            ))}
-          </div>
-          <button className="primary" onClick={() => setResult(null)}>
-            FIND ANOTHER BATTLE
-          </button>
-        </div>
-      </section>
-    );
+    return <BattleReplay result={result} onClose={() => setResult(null)} />;
   }
   return (
     <section className="page battle-page">
@@ -3687,7 +3781,7 @@ function Battle(
         <h1>BUILD YOUR PARTY.</h1>
         <p>
           Assign roles, prepare potions, and challenge an equally sized squad.
-          Equipment earned in adventures determines combat stats.
+          Equipment earned in adventures determines combat stats. Each fight draws one of eight arena lands: matching pets and all Genesis pets gain 10% damage and healing.
         </p>
       </div>
       <div className="battle-builder">
@@ -3711,6 +3805,7 @@ function Battle(
                     <span>
                       <small>{active ? "IN FORMATION" : "AVAILABLE"}</small>
                       <b>{friend.name}</b>
+                      <small>{friend.collection === "Genesis" ? "GENESIS · +10% IN EVERY ARENA" : petLand(friend) ? `${petLand(friend)} · +10% ON MATCH` : "LAND UNKNOWN · NO MATCH BONUS"}</small>
                       <em>
                         ATK {stats.attack} · ARM {stats.armor} · BLK{" "}
                         {stats.block}
@@ -4181,7 +4276,7 @@ function Raids(
             onClick={() => setSelectedName(entry.name)}
             style={{ background: entry.color }}
           >
-            <img src={LAND_ART[entry.scenery]} alt="" />
+            <img src={LAND_ART[entry.scenery as ArenaLand]} alt="" />
             <span>
               <small>{entry.reward} · {ELEMENT_META[entry.element].label}</small>
               <b>{entry.name}</b>
