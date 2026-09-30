@@ -30,6 +30,8 @@ jobs:
         id: pages
         uses: actions/configure-pages@v5
       - run: npm ci
+      - name: Check wallet lifecycle
+        run: npm run test:wallet
       - name: Build for the Pages URL
         env:
           PAGES_BASE_PATH: ${{ steps.pages.outputs.base_path }}

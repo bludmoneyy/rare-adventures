@@ -10,7 +10,7 @@ A choose-your-adventure game that gives Rare Friends a progression loop through 
 | Proposed category | **Economy Potential** |
 | Approach | Standalone web game; **does not use FriendSDK** |
 | Stack | React 18, TypeScript 5.7, Vite 6, CSS and SVG assets; GitHub Pages hosting |
-| Wallet / network requirements | None for the playable demo. No NFT ownership check, wallet connection, transaction signature, or funded account is required. |
+| Wallet / network requirements | Optional EIP-6963/EIP-1193 browser wallet connection on Robinhood Chain (4663). No wallet, NFT ownership, signature, or funded account is required to play the simulated demo. |
 | Economy status | All RF balances, purchases, sinks, wagers, rewards, and marketplace trades are simulated locally. |
 
 ## What did we build?
@@ -52,17 +52,24 @@ Progress is saved in this browser's `localStorage`. To start over, use **RESET D
 
 ## Checks and known limitations
 
-Checks completed during deployment preparation:
+Wallet update checks (September 30, 2026):
+
+- TypeScript checking and the production build for `/rare-adventures/` passed.
+- Ten wallet tests passed: connection, rejection/retry, account/network changes, network addition, declined switching, cancellation, stale balance responses, malformed responses/disconnect, timeout, and provider discovery.
+- Automated Chrome checks with an injected test provider passed for missing-wallet guidance, connection, wrong-network display, switching, live balance rendering, account changes, disconnect, keyboard focus restoration, and mobile layout at 375 × 812. No browser runtime errors or signing/transaction requests were observed.
+- These wallet checks use a mock provider. A real extension/hardware-wallet acceptance pass and a full gameplay/browser suite remain outstanding.
+
+Checks previously recorded during deployment preparation:
 
 - TypeScript checking and Vite production builds passed for both `/` and `/rare-adventures/` hosting paths.
 - A local asset audit found all **44 referenced public SVG assets**, including dynamically selected potion art. The missing lance reference was corrected, with compatibility for old saved paths.
 - Scripted checks passed for asset URL mapping, generated entry links, the web manifest, and service-worker cache isolation and offline fallback behavior.
 
-These were local build and scripted checks, not a full automated browser or gameplay suite. Desktop/mobile gameplay, keyboard accessibility, and every secondary game mode still need a complete reviewer pass. There is no FriendSDK validation result because this project does not use the SDK.
+The wallet flow has automated browser coverage; desktop/mobile gameplay, full keyboard accessibility, and every secondary game mode still need a complete reviewer pass. There is no FriendSDK validation result because this project does not use the SDK.
 
 Known limits and future work:
 
-- No wallet access or live funds are involved. Verified NFT selection and original per-token artwork are not implemented.
+- Optional wallet access reads the selected address, network, and live native ETH balance. No signatures, approvals, or transactions are requested. Verified NFT selection and original per-token artwork are not implemented.
 - Saves, guild chat, opponents, raid wallets, market activity, and balances are local. There is no shared backend, authenticated multiplayer, escrow, or authoritative settlement.
 - Local saves and outcomes can be edited; `Math.random()` is not secure randomness. Production would need trusted settlement and prevention of duplicated trades/rewards.
 - The initial reward pool is a demo subsidy. Economy tuning and raid-wide payout accounting need playtesting before any real RF integration.
@@ -75,13 +82,35 @@ Known limits and future work:
 - **Google Fonts and their designers:** Archivo, Silkscreen, and Sometype Mono, loaded through Google Fonts.
 - Item illustrations and the fallback walking sprite are bundled under `public/`; additional UI SVGs are in `src/assets/svgs/`. These credits do not assert ownership of Rare Friends artwork or grant additional rights to third-party assets.
 
+## Wallet connection
+
+Select **Connect wallet** in the header and choose an installed wallet. The app discovers multiple injected wallets through [EIP-6963](https://eips.ethereum.org/EIPS/eip-6963), with a legacy `window.ethereum` fallback, and handles [EIP-1193](https://eips.ethereum.org/EIPS/eip-1193) account, network, and disconnect events. On mobile, open the demo inside your wallet's browser; external WalletConnect/QR sessions are not implemented.
+
+The wallet panel shows the full account address, network, a read-only native ETH balance on Robinhood Chain, and an explorer link. If needed, select **Switch to Robinhood Chain** and approve the network prompt in your wallet. The app requests network addition only when the wallet reports an unknown chain, then verifies the selected chain. [Official network settings](https://docs.robinhood.com/chain/add-network-to-wallet/): chain ID **4663** (`0x1237`), RPC `https://rpc.mainnet.chain.robinhood.com`, native currency **ETH**, explorer `https://robinhoodchain.blockscout.com`.
+
+Account changes immediately clear the previous account/balance; stale asynchronous responses cannot restore them. Declined requests, unsupported methods, timeouts, unavailable accounts, and network failures have recoverable states. **Refresh account** rereads the wallet; **Disconnect** ends the app's connection and removes listeners. Revoking the site's wallet permissions is a separate action inside the wallet. Connections are not persisted or automatically requested after reload.
+
+**Production boundary:** this is a real wallet connection and read-only balance integration, not authenticated login or real-token gameplay. The game retains one browser-local demo save, independent of any connected account. Switching wallets does not assign the demo roster or balances to that wallet. The app never requests a signature, token approval, or transaction. NFT ownership/metadata loading, signed server sessions, authoritative game state, contract settlement, and production economy validation remain future work. Keep all RF purchases/rewards simulated for the Vibeathon.
+
+### Verify the wallet flow
+
+Use Node.js 22.18+:
+
+```bash
+npm run test:wallet
+npx tsc -p tsconfig.app.json --noEmit
+npm run build -- --base=/rare-adventures/
+```
+
+For browser checks, start `npm run dev` and a dedicated Chrome instance using `--headless=new --user-data-dir=/tmp/rare-wallet-check --remote-debugging-port=9231 about:blank`, then run `npm run test:wallet:browser`. The test uses a mock wallet in an isolated page, never a real funded wallet. `APP_URL` and `CHROME_DEBUG_URL` override the default local addresses. Screenshots are written to `/tmp/rare-wallet-mobile.png` and `/tmp/rare-wallet-desktop.png`.
+
 ## Preparing the Vibeathon PR
 
 The [submission instructions](https://github.com/spokesz/rarefriends-vibeathon#how-to-submit) ask for a PR adding `submissions/your-project/README.md`. For this entry, use **`submissions/rare-adventures/README.md`** in a fork of the Vibeathon repository. Keep the application source in this repository and link to it from the submission.
 
 Suggested PR title: **Submission: Rare Adventures — Economy Potential**.
 
-Use the overview, builder/contact, category, demo and source links, stack, play instructions, economy rules, checks, limitations, and credits above in both the submission README and PR description. Link back to this README's economy guide for full parameters. When copying text to the submission repository, replace local asset/script links with links to this source repository. Confirm the proposed category and builder contact, and complete a fresh browser playthrough before opening the PR.
+Use the overview, builder/contact, category, demo and source links, stack, play instructions, economy rules, checks, limitations, and credits above in both the submission README and PR description. Link back to this README's economy guide for full parameters. When copying text to the submission repository, replace local asset/script links with links to this source repository. The entry is submitted as Economy Potential by @bludmoneyy; keep wallet changes, checks, and remaining limitations synchronized with the submission PR.
 
 ## Run locally
 

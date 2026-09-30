@@ -1,0 +1,37 @@
+// Run against a dedicated headless Chrome profile with remote debugging on port 9231.
+import {writeFile} from 'node:fs/promises';
+const tabs=await (await fetch(`${process.env.CHROME_DEBUG_URL || 'http://127.0.0.1:9231'}/json`)).json();
+const ws=new WebSocket(tabs[0].webSocketDebuggerUrl); await new Promise(r=>ws.onopen=r);
+let id=0; const waiting=new Map(); const errors=[];
+ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.id){const p=waiting.get(m.id);waiting.delete(m.id);m.error?p.reject(m.error):p.resolve(m.result);} if(m.method==='Runtime.exceptionThrown') errors.push(m.params.exceptionDetails.text);};
+const send=(method,params={})=>new Promise((resolve,reject)=>{const n=++id;waiting.set(n,{resolve,reject});ws.send(JSON.stringify({id:n,method,params}));});
+const evaluate=async expression=>{const r=await send('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw Error(JSON.stringify(r.exceptionDetails));return r.result.value;};
+const check=async (expression,label)=>{if(!await evaluate(expression))throw Error(label);console.log('PASS',label);};
+const settle=()=>evaluate('new Promise(r=>setTimeout(r,150))');
+await send('Runtime.enable');await send('Page.enable');
+await send('Page.navigate',{url:process.env.APP_URL || 'http://127.0.0.1:5173'});
+for(let i=0;i<50;i++){try { if(await evaluate('!!document.querySelector(".wallet-trigger")'))break; } catch {} await new Promise(r=>setTimeout(r,150));}
+await evaluate('document.querySelector(".wallet-trigger").focus();document.querySelector(".wallet-trigger").click()');
+await check('document.querySelector("dialog").open && document.querySelector("dialog").textContent.includes("No browser wallet")','no-wallet guidance');
+await evaluate(`window.mockWallet={accounts:['0x0000000000000000000000000000000000000001'],chain:'0x1',listeners:{},calls:[],on(e,f){(this.listeners[e]??=[]).push(f)},removeListener(e,f){this.listeners[e]=this.listeners[e].filter(x=>x!==f)},emit(e,v){this.listeners[e]?.forEach(f=>f(v))},async request(a){this.calls.push(a.method);if(a.method==='eth_requestAccounts'||a.method==='eth_accounts')return this.accounts;if(a.method==='eth_chainId')return this.chain;if(a.method==='eth_getBalance')return '0xde0b6b3a7640000';if(a.method==='wallet_switchEthereumChain'){this.chain=a.params[0].chainId;this.emit('chainChanged',this.chain);return null;}throw Error(a.method)}};window.dispatchEvent(new CustomEvent('eip6963:announceProvider',{detail:{info:{uuid:'mock',name:'Test Browser Wallet'},provider:window.mockWallet}}));`);
+await settle();
+await evaluate('[...document.querySelectorAll(".wallet-options button")].find(b=>b.textContent==="Test Browser Wallet").click()');await settle();
+await check('document.querySelector("dialog").textContent.includes("Different network")','wrong network shown');
+await evaluate('[...document.querySelectorAll("dialog button")].find(b=>b.textContent==="Switch to Robinhood Chain").click()');await settle();
+await check('document.querySelector("dialog").textContent.includes("1.0 ETH")','network switch and live balance');
+await evaluate(`window.mockWallet.accounts=['0x0000000000000000000000000000000000000002'];window.mockWallet.emit('accountsChanged',window.mockWallet.accounts)`);await settle();
+await check('document.querySelector(".wallet-address").textContent.endsWith("0002")','account-change display');
+await send('Emulation.setDeviceMetricsOverride',{width:375,height:812,deviceScaleFactor:1,mobile:true});await settle();
+await check('document.documentElement.scrollWidth<=innerWidth','mobile page fits viewport');
+await check('document.querySelector("dialog").getBoundingClientRect().right<=innerWidth','mobile dialog fits viewport');
+await send('Page.captureScreenshot',{format:'png'}).then(r=>writeFile('/tmp/rare-wallet-mobile.png',Buffer.from(r.data,'base64')));
+await evaluate('document.querySelector(".wallet-title-row button").click()');
+await check('document.activeElement.classList.contains("wallet-trigger")','dialog restores focus');
+await check('(()=>{const b=document.querySelector(".wallet-trigger").getBoundingClientRect();return b.left>=0 && b.right<=innerWidth})()','mobile connect button fits');
+await evaluate('document.querySelector(".wallet-trigger").focus();document.querySelector(".wallet-trigger").click();[...document.querySelectorAll("dialog button")].find(b=>b.textContent==="Disconnect").click()');await settle();
+await check('document.querySelector(".wallet-trigger").textContent==="Connect wallet"','disconnect clears address');
+await check('window.mockWallet.calls.every(m=>["eth_requestAccounts","eth_accounts","eth_chainId","eth_getBalance","wallet_switchEthereumChain"].includes(m))','no signing or transaction requests');
+await send('Emulation.setDeviceMetricsOverride',{width:1440,height:900,deviceScaleFactor:1,mobile:false});
+await evaluate('document.querySelector(".wallet-title-row button").click()');await settle();
+await send('Page.captureScreenshot',{format:'png'}).then(r=>writeFile('/tmp/rare-wallet-desktop.png',Buffer.from(r.data,'base64')));
+if(errors.length)throw Error(JSON.stringify(errors));console.log('PASS no browser runtime errors');ws.close();

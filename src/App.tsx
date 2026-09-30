@@ -1,4 +1,5 @@
 import { publicAsset } from "./publicAsset";
+import { WalletPanel } from "./wallet/WalletPanel";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   Backpack,
@@ -2565,16 +2566,17 @@ function Header(
         </span>
       </button>
       <div className="pool">
-        <small>REWARD POOL</small>
+        <small>DEMO REWARD POOL</small>
         <strong>
           <Coins /> {player.pool.toLocaleString()} $RF
         </strong>
       </div>
       <div className="header-actions">
         <div className="balance">
-          <small>YOUR BALANCE</small>
+          <small>DEMO BALANCE</small>
           <strong>{player.rf} $RF</strong>
         </div>
+        <WalletPanel />
         <button
           className="menu"
           onClick={toggle}
