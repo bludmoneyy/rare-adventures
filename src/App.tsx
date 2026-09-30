@@ -1,3 +1,4 @@
+import { publicAsset } from "./publicAsset";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   Backpack,
@@ -141,7 +142,7 @@ function LandScene(
             <b>{hp}/{maxHp}</b>
           </div>
           <div className="land-friend-sprite">
-            <img src={friend.spriteUrl ?? "/friend-walk-sprite.svg"} alt="" />
+            <img src={publicAsset(friend.spriteUrl ?? "/friend-walk-sprite.svg")} alt="" />
           </div>
         </div>
       )}
@@ -1280,7 +1281,7 @@ const RAID_ITEMS: Item[] = [
     name: "Cometfall Lance",
     kind: "weapon",
     icon: "†",
-    art: "/items/star-lance.svg",
+    art: "/items/starforge-lance.svg",
     price: 165,
     power: 18,
     uses: 17,
@@ -2558,7 +2559,7 @@ function Header(
   return (
     <header>
       <button className="brand" onClick={home}>
-        <img src="/rare-friends.svg" />
+        <img src={publicAsset("/rare-friends.svg")} alt="" />
         <span>
           rare <b>adventures</b>
         </span>
@@ -2589,14 +2590,14 @@ function Header(
 function FriendFace({ friend }: { friend: Friend }) {
   return (
     <div className="friend-face" style={{ background: friend.color }}>
-      <img src="/rare-friends.svg" />
+      <img src={publicAsset("/rare-friends.svg")} alt="" />
       <i>{friend.id.split("-").at(-1)}</i>
     </div>
   );
 }
 function ItemVisual({ item }: { item: Item }) {
   return item.art
-    ? <img className="item-svg" src={item.art} alt="" />
+    ? <img className="item-svg" src={publicAsset(item.art)} alt="" />
     : <span aria-hidden="true">{item.icon}</span>;
 }
 function ElementBadge({ element }: { element: Element }) {
@@ -3576,7 +3577,7 @@ function RoamingBattlePet({ unit, index, count, moving, step, acting, hit, heale
         </div>
       </div>
       <div className="arena-sprite" key={`${unit.id}-${step}`}>
-        <img style={{ transform: `scaleX(${facing})` }} src={unit.spriteUrl ?? "/friend-walk-sprite.svg"} alt="" />
+        <img style={{ transform: `scaleX(${facing})` }} src={publicAsset(unit.spriteUrl ?? "/friend-walk-sprite.svg")} alt="" />
       </div>
     </div>
   );

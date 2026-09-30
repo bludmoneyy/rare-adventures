@@ -11,6 +11,29 @@ npm run dev
 
 Use `npm run build` and `npm run preview` to test the production build. Demo state is stored in `localStorage` under `rare-adventures-save-v1`.
 
+## Host on GitHub Pages
+
+The included `.github/workflows/pages.yml` builds and deploys the app on pushes to `main`, or when run manually. It reads the site's base path from GitHub Pages, so asset URLs work at `/rare-adventures/`, at a renamed repository path, or on a custom domain. No backend server or deployment secret is needed.
+
+1. Commit these changes and push them to the GitHub repository's `main` branch.
+2. Open **Settings → Pages → Build and deployment**, and set **Source** to **GitHub Actions**. Do not choose a branch or create another workflow.
+3. Open **Actions → Deploy to GitHub Pages → Run workflow**, select `main`, and run it. Later pushes to `main` deploy automatically.
+4. Wait for the workflow to succeed, then open the URL in the deployment summary. For this repository, the default URL is **https://bludmoneyy.github.io/rare-adventures/**.
+
+If the initial push runs before Pages is enabled, enable it and rerun the workflow. See the [GitHub Pages setup guide](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site) and [Vite deployment guide](https://vite.dev/guide/static-deploy.html#github-pages).
+
+To preview the repository path locally:
+
+```bash
+npm ci
+npm run build -- --base=/rare-adventures/
+npm run preview -- --base=/rare-adventures/
+```
+
+Open `http://localhost:4173/rare-adventures/`. The default `npm run build` still supports hosting at `/`. Navigation uses React state rather than separate URL routes, so Pages does not need a custom `404.html` redirect. The manifest and production service worker use the deployment directory; previously visited resources are available offline, but a first visit requires a connection.
+
+Pages publishes the browser demo, including local saves and simulated economy actions. It does not run `server/production.mjs`, provide shared persistence, or turn the prototype into on-chain transactions. The workflow installs from `package-lock.json` and builds fresh output; existing committed `dist/` and `node_modules/` files are not used as the deployment artifact.
+
 ## Prototype behavior
 
 - Eight adventure tiers with escalating entry costs, room counts, danger, and rewards
