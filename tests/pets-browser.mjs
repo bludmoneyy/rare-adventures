@@ -1,0 +1,57 @@
+// Dedicated Chrome: --headless=new --user-data-dir=/tmp/rare-pet-check --remote-debugging-port=9231 about:blank
+import { Interface, id, zeroPadValue, toBeHex } from 'ethers';
+import {writeFile} from 'node:fs/promises';
+const abi=new Interface(['function balanceOf(address) view returns(uint256)','function ownerOf(uint256) view returns(address)','function tokenURI(uint256) view returns(string)','function generation(uint256) view returns(uint8)']);
+const A='0x0000000000000000000000000000000000000001',B='0x0000000000000000000000000000000000000002';
+const genesis='0x116eaa62241751e0c98da43d458600c6c17cd361',generations='0x14c49e6118f46525de9ab41a51cbaa3c6ebf181d';
+const image='data:image/svg+xml;base64,'+btoa('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><g id="portrait"><rect x="4" y="4" width="24" height="24" fill="black"/><rect x="8" y="8" width="16" height="16" fill="white"/></g></svg>');
+const uri='data:application/json;base64,'+btoa(JSON.stringify({image,attributes:[{trait_type:'Scenery',value:'Coastal'},{trait_type:'Character',value:'Cellular'}]}));
+const fixture={addresses:{A,B,genesis,generations},selectors:Object.fromEntries(['balanceOf','ownerOf','tokenURI','generation'].map(n=>[n,abi.getFunction(n).selector])),results:{one:abi.encodeFunctionResult('balanceOf',[1]),zero:abi.encodeFunctionResult('balanceOf',[0]),ownerA:abi.encodeFunctionResult('ownerOf',[A]),ownerB:abi.encodeFunctionResult('ownerOf',[B]),uri:abi.encodeFunctionResult('tokenURI',[uri]),generation:abi.encodeFunctionResult('generation',[2])},logs:[genesis,generations].map(address=>({address,topics:[id('Transfer(address,address,uint256)'),zeroPadValue(B,32),zeroPadValue(A,32),toBeHex(7,32)],blockNumber:'0x3c2e09f',logIndex:'0x1',removed:false}))};
+const tabs=await(await fetch(`${process.env.CHROME_DEBUG_URL||'http://127.0.0.1:9231'}/json`)).json();
+const ws=new WebSocket(tabs[0].webSocketDebuggerUrl);await new Promise(r=>ws.onopen=r);
+let serial=0;const pending=new Map(),errors=[];
+ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.id){const p=pending.get(m.id);pending.delete(m.id);m.error?p.reject(m.error):p.resolve(m.result)}if(m.method==='Runtime.exceptionThrown')errors.push(m.params.exceptionDetails)};
+const send=(method,params={})=>new Promise((resolve,reject)=>{const n=++serial;pending.set(n,{resolve,reject});ws.send(JSON.stringify({id:n,method,params}))});
+const ev=async expression=>{const r=await send('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw Error(JSON.stringify(r.exceptionDetails));return r.result.value};
+const wait=async(expression,label)=>{for(let i=0;i<100;i++){try{if(await ev(expression)){console.log('PASS',label);return}}catch{}await new Promise(r=>setTimeout(r,100))}throw Error(label+': '+expression)};
+const nav=page=>ev(`[...document.querySelectorAll('nav button')].find(b=>b.textContent.trim()===${JSON.stringify(page)}).click()`);
+await send('Runtime.enable');await send('Page.enable');await send('Page.navigate',{url:process.env.APP_URL||'http://127.0.0.1:5173'});await wait('!!document.querySelector(".wallet-trigger")','app loaded');
+await ev(`window.fixture=${JSON.stringify(fixture)};window.nftMode='owned';window.rpcFailure=false;window.oldFetch=fetch.bind(window);
+window.fetch=async(input,options)=>{
+ if(!String(input).includes('rpc.mainnet.chain.robinhood.com'))return oldFetch(input,options);
+ if(rpcFailure)throw Error('Test RPC outage');
+ const {method,params}=JSON.parse(options.body),f=fixture;let result;
+ if(method==='eth_chainId')result='0x1237';else if(method==='eth_blockNumber')result='0x3c2e09f';
+ else if(method==='eth_getLogs'){
+  const q=params[0];result=f.logs.filter(l=>l.address===q.address&&BigInt(l.blockNumber)>=BigInt(q.fromBlock)&&BigInt(l.blockNumber)<=BigInt(q.toBlock)&&(!q.topics[1]||q.topics[1]===l.topics[1])&&(!q.topics[2]||q.topics[2]===l.topics[2]));
+ }else if(method==='eth_call'){
+  const c=params[0],name=Object.keys(f.selectors).find(n=>c.data.startsWith(f.selectors[n]));
+  if(name==='balanceOf')result=mockWallet.accounts[0]===f.addresses.B||nftMode==='empty'||(nftMode==='transferred'&&c.to===f.addresses.genesis)?f.results.zero:f.results.one;
+  else result=name==='ownerOf'?f.results.ownerA:name==='tokenURI'?f.results.uri:f.results.generation;
+ }else throw Error('Unexpected RPC '+method);
+ return new Response(JSON.stringify({jsonrpc:'2.0',id:1,result}));
+};
+window.mockWallet={accounts:[fixture.addresses.A],listeners:{},on(e,f){(this.listeners[e]??=[]).push(f)},removeListener(e,f){this.listeners[e]=this.listeners[e].filter(x=>x!==f)},emit(e,v){this.listeners[e]?.forEach(f=>f(v))},async request(a){if(a.method==='eth_requestAccounts'||a.method==='eth_accounts')return this.accounts;if(a.method==='eth_chainId')return '0x1237';if(a.method==='eth_getBalance')return '0x0';throw Error(a.method)}};
+localStorage.removeItem('rare-adventures-wallet-v1:4663:'+fixture.addresses.A);localStorage.removeItem('rare-adventures-wallet-v1:4663:'+fixture.addresses.B);
+dispatchEvent(new CustomEvent('eip6963:announceProvider',{detail:{info:{uuid:'pets',name:'Pet Test Wallet'},provider:mockWallet}}));`);
+await ev('document.querySelector(".wallet-trigger").click()');await wait('!!document.querySelector(".wallet-options button")','wallet discovered');await ev('document.querySelector(".wallet-options button").click()');await wait('document.querySelector(".owned-pets-banner")?.textContent.includes("2 owned pets")','both owned collections loaded');await ev('document.querySelector(".wallet-title-row button").click()');await nav('Friends');
+await wait('document.querySelectorAll(".friend-grid article").length===2','demo pets replaced');
+await wait('[...document.querySelectorAll(".friend-face img")].every(i=>i.complete&&i.naturalWidth>0)','NFT artwork renders');
+await wait('document.querySelector(".friend-grid").textContent.includes("Coastal · +10%")&&document.querySelector(".friend-grid").textContent.includes("+10% in every arena")','verified land and Genesis bonuses shown');
+await ev('document.querySelectorAll(".select-friend")[1].click()');await wait('document.querySelector(".friend-grid article[data-selected]")?.textContent.includes("Generations #7")','owned Generations selected');
+await ev('document.querySelector("article[data-selected] .venture").click()');await wait('!!document.querySelector(".dungeon-detail button")','adventure preparation');await ev('document.querySelector(".dungeon-detail button").click()');
+await wait('!!document.querySelector(".land-friend-sprite img")','owned pet enters adventure');
+await wait('document.querySelector(".land-friend-sprite img").src.startsWith("data:image/svg+xml")&&document.querySelector(".land-friend-sprite img").naturalWidth>0','owned character sprite renders in adventure');
+await ev(`mockWallet.accounts=[fixture.addresses.B];mockWallet.emit('accountsChanged',mockWallet.accounts)`);
+await wait('document.querySelector(".owned-pets-gate")?.textContent.includes("No playable pets")','empty new wallet clears previous roster and active run');
+await ev(`mockWallet.accounts=[fixture.addresses.A];mockWallet.emit('accountsChanged',mockWallet.accounts)`);await wait('document.querySelector(".owned-pets-banner")?.textContent.includes("2 owned pets")','original wallet reloads');
+await wait('document.querySelector(".balance strong")?.textContent.includes("238")','wallet-specific RF progress restored');
+await wait('!document.querySelector(".land-friend-sprite")','old in-progress adventure does not leak between sessions');
+await ev(`nftMode='transferred';document.querySelector('.owned-pets-banner button').click()`);await wait('document.querySelector(".owned-pets-banner")?.textContent.includes("1 owned pets")','transferred pet removed on refresh');await nav('Friends');
+await wait('document.querySelectorAll(".friend-grid article").length===1&&!document.querySelector(".friend-grid").textContent.includes("Genesis #7")','transferred Genesis cannot be selected');
+await ev(`rpcFailure=true;document.querySelector('.owned-pets-banner button').click()`);await wait('document.querySelector(".owned-pets-gate")?.textContent.includes("Could not verify")','RPC failure blocks stale roster');
+await ev(`rpcFailure=false;document.querySelector('.owned-pets-gate button').click()`);await wait('!!document.querySelector(".owned-pets-banner")','ownership retry recovers');
+await send('Emulation.setDeviceMetricsOverride',{width:375,height:812,deviceScaleFactor:1,mobile:true});await nav('Friends');
+await wait('document.documentElement.scrollWidth<=innerWidth','mobile owned roster fits');
+await send('Page.captureScreenshot',{format:'png'}).then(r=>writeFile('/tmp/rare-owned-pets-mobile.png',Buffer.from(r.data,'base64')));
+if(errors.length)throw Error(JSON.stringify(errors));console.log('PASS no browser runtime errors');ws.close();

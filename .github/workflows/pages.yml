@@ -32,6 +32,8 @@ jobs:
       - run: npm ci
       - name: Check wallet lifecycle
         run: npm run test:wallet
+      - name: Check owned pets and buffs
+        run: npm run test:pets
       - name: Build for the Pages URL
         env:
           PAGES_BASE_PATH: ${{ steps.pages.outputs.base_path }}

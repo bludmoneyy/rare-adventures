@@ -12,3 +12,10 @@
 .wallet-error{border-left:3px solid var(--danger);padding:10px;background:var(--panel2)}
 .wallet-note{color:var(--muted);font-size:12px}.wallet-demo-note{border-top:1px solid var(--line);padding-top:16px;margin-top:20px}.wallet-demo-note p{margin-bottom:0;font-size:13px}
 @media(max-width:650px){header{grid-template-columns:44px minmax(0,1fr) auto!important}.header-actions{display:flex!important;gap:4px!important}.wallet-trigger{font-size:10px;padding:6px}.pool strong{font-size:10px}.pool small{font-size:7px}}
+
+.wallet-slot{display:inline-flex;min-width:110px}.owned-pets-banner{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:0 0 20px;padding:12px;border:1px solid var(--line);font:12px/1.6 var(--font-mono)}
+.owned-pets-banner button,.owned-pets-gate button{padding:10px;border:1px solid var(--line);background:var(--panel2);color:var(--ink)}
+.owned-pets-gate{max-width:640px;margin:60px auto;padding:24px;border:1px solid var(--line)}.owned-pets-gate button{margin:8px 8px 0 0}.owned-pets-gate p{line-height:1.7}
+@media(max-width:650px){.wallet-slot{min-width:96px}}
+
+.friend-face.owned-portrait img{mix-blend-mode:normal;width:100%;height:100%;object-fit:contain}

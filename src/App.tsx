@@ -1,6 +1,9 @@
 import { publicAsset } from "./publicAsset";
 import { WalletPanel } from "./wallet/WalletPanel";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { WalletClient, ROBINHOOD } from "./wallet/client";
+import { useOwnedPets } from "./wallet/useOwnedPets";
+import { battleEfficiency, type Pet } from "./wallet/pets";
+import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import {
   Backpack,
   ChevronRight,
@@ -50,8 +53,6 @@ const DEMO_PET_LANDS: Record<string, ArenaLand> = {
 };
 const petLand = (friend: Friend): ArenaLand | undefined =>
   isArenaLand(friend.land) ? friend.land : DEMO_PET_LANDS[friend.id];
-const battleEfficiency = (pet: { collection?: string; land?: string }, arena: ArenaLand) =>
-  pet.collection === "Genesis" || pet.land === arena ? 1.1 : 1;
 const efficientAmount = (amount: number, efficiency: number) => Math.round(amount * efficiency);
 
 const ECONOMY = {
@@ -211,6 +212,8 @@ type Friend = {
   family: string;
   color: string;
   spriteUrl?: string;
+  imageUrl?: string;
+  tokenId?: string;
   land?: ArenaLand;
   inventory: Item[];
   role?: BattleRole;
@@ -1760,34 +1763,62 @@ function productionFriend(friend: Friend): Friend {
     });
   return { ...friend, collection, land: petLand(friend), name: `${collection} #${token}`, inventory };
 }
-function load(): Player {
+function initialPlayer(pets?: Pet[]): Player {
+  return pets ? { ...starter, friends: pets.map(pet => ({
+    ...pet, color: pet.collection === "Genesis" ? "#c9b8ff" : "#a9e8d2",
+    inventory: [], runs: 0, wins: 0, deaths: 0, earnedRf: 0, spentRf: 0, burnedRf: 0, itemsBought: 0,
+  })), selectedId: pets[0].id } : starter;
+}
+function load(saveKey: string, pets?: Pet[]): Player {
+  const fresh = initialPlayer(pets);
   try {
-    const p = JSON.parse(
-      localStorage.getItem("rare-adventures-save-v1") || "",
-    ) as Player;
-    return p.friends
-      ? {
-        ...p,
-        ...(p.guildWeek === guildWeekKey() ? {} : {
-          guildId: undefined,
-          warPoints: 0,
-          guildTithe: 0,
-          guildWeek: guildWeekKey(),
-        }),
-        friends: p.friends.map(productionFriend),
-      }
-      : starter;
-  } catch {
-    return starter;
-  }
+    const p = JSON.parse(localStorage.getItem(saveKey) || "") as Player;
+    if (!Array.isArray(p.friends) || !Number.isFinite(p.rf) || !Number.isFinite(p.pool)) return fresh;
+    const friends = pets ? fresh.friends.map(pet => {
+      const saved = p.friends.find(friend => friend.id === pet.id);
+      return saved ? { ...saved, ...pet, inventory: Array.isArray(saved.inventory) ? saved.inventory : [],
+        role: saved.role, runs: saved.runs, wins: saved.wins, deaths: saved.deaths,
+        earnedRf: saved.earnedRf, spentRf: saved.spentRf, burnedRf: saved.burnedRf, itemsBought: saved.itemsBought } : pet;
+    }) : p.friends.map(productionFriend);
+    return { ...p, friends, selectedId: friends.some(f => f.id === p.selectedId) ? p.selectedId : friends[0].id,
+      ...(p.guildWeek === guildWeekKey() ? {} : { guildId: undefined, warPoints: 0, guildTithe: 0, guildWeek: guildWeekKey() }) };
+  } catch { return fresh; }
 }
 export default function App() {
-  const [page, setPage] = useState<Page>("home"),
+  const [client] = useState(() => new WalletClient());
+  const wallet = useSyncExternalStore(client.subscribe, client.getSnapshot);
+  const [walletSlot, setWalletSlot] = useState<HTMLSpanElement | null>(null);
+  const account = wallet.chainId === ROBINHOOD.chainId ? wallet.address?.toLowerCase() : undefined;
+  const owned = useOwnedPets(account);
+  const guest = !wallet.wallet;
+  const playable = guest || !!(account && owned.pets?.length && !owned.error);
+  const saveKey = guest ? "rare-adventures-save-v1" : `rare-adventures-wallet-v1:4663:${account}`;
+  const rosterKey = owned.pets?.map(p => `${p.id}:${p.generation}:${p.land ?? ""}`).join("|") ?? "";
+  return <>
+    {playable ? <Game key={guest ? "guest" : `${account}:${rosterKey}`} saveKey={saveKey}
+      pets={guest ? undefined : owned.pets} walletSlot={setWalletSlot} refreshPets={owned.refresh} refreshingPets={owned.refreshing} /> :
+      <div className="app">
+        <Header player={{ ...starter, rf: 0, pool: 0 }} menu={false} toggle={() => {}} home={() => {}} walletSlot={setWalletSlot} />
+        <main><section className="owned-pets-gate">
+          <h1>{owned.error ? "Could not verify your pets" : !account ? "Connect on Robinhood Chain" : owned.pets ? "No playable pets found" : "Loading your pets…"}</h1>
+          <p role={owned.error ? "alert" : "status"}>{owned.error || (!account ? "Open your wallet to finish connecting or switch to Robinhood Chain." : owned.pets ? "This wallet has no Genesis or hardwired Generations NFTs (generation 1 or higher). Transfer a pet to this wallet, then refresh." : "Checking Genesis and Generations ownership and loading their on-chain artwork and traits.")}</p>
+          {account && <button disabled={owned.refreshing} onClick={owned.refresh}>{owned.refreshing ? "Checking ownership…" : "Refresh pets"}</button>}
+          <button onClick={client.disconnect}>Return to guest demo</button>
+        </section></main>
+      </div>}
+    <WalletPanel client={client} triggerTarget={walletSlot} petCount={account ? owned.pets?.length : undefined} petError={account ? owned.error : undefined} loadingPets={!!account && !owned.pets && !owned.error} />
+  </>;
+}
+function Game({ saveKey, pets, walletSlot, refreshPets, refreshingPets }: {
+  saveKey: string; pets?: Pet[]; walletSlot: (element: HTMLSpanElement | null) => void;
+  refreshPets: () => void; refreshingPets: boolean;
+}) {
+  const [page, setPage] = useState<Page>(pets ? "friends" : "home"),
     [menu, setMenu] = useState(false),
     [darkMode, setDarkMode] = useState(() =>
       localStorage.getItem("rare-adventures-color-mode") === "dark"
     ),
-    [player, setPlayer] = useState<Player>(load),
+    [player, setPlayer] = useState<Player>(() => load(saveKey, pets)),
     [shop, setShop] = useState<Kind>("armor"),
     [selectedDungeon, setSelectedDungeon] = useState(DUNGEONS[0]),
     [run, setRun] = useState<Run | null>(null),
@@ -1795,8 +1826,12 @@ export default function App() {
   const friend = player.friends.find((f) => f.id === player.selectedId)!;
   useEffect(
     () =>
-      localStorage.setItem("rare-adventures-save-v1", JSON.stringify(player)),
-    [player],
+      { try {
+        // Artwork is fetched from the canonical contracts each session, not trusted from saves.
+        const saved = pets ? { ...player, friends: player.friends.map(({ spriteUrl, imageUrl, ...friend }) => friend) } : player;
+        localStorage.setItem(saveKey, JSON.stringify(saved));
+      } catch { setToast("Browser storage is full or unavailable. Progress cannot be saved."); } },
+    [player, saveKey, pets],
   );
   useEffect(() => {
     const mode = darkMode ? "dark" : "light";
@@ -2311,6 +2346,7 @@ export default function App() {
         menu={menu}
         toggle={() => setMenu((v) => !v)}
         home={() => nav("home")}
+        walletSlot={walletSlot}
       />
       {menu && (
         <button
@@ -2403,8 +2439,10 @@ export default function App() {
           <button
             className="reset"
             onClick={() => {
-              localStorage.removeItem("rare-adventures-save-v1");
-              setPlayer(starter);
+              localStorage.removeItem(saveKey);
+              setRun(null);
+              setPage("home");
+              setPlayer(initialPlayer(pets));
               setToast("Demo reset");
             }}
           >
@@ -2422,6 +2460,10 @@ export default function App() {
         </div>
       </aside>
       <main>
+        <div className="owned-pets-banner">
+          <span>{pets ? `${pets.length} owned pets · Wallet progress · Simulated RF` : "Guest demo · Preset pets · Simulated RF"}</span>
+          {pets && <button disabled={refreshingPets} onClick={refreshPets}>{refreshingPets ? "Checking pets…" : "Refresh pets"}</button>}
+        </div>
         {page === "home" && (
           <Home
             enter={() => nav("friends")}
@@ -2550,8 +2592,9 @@ function Nav(
   );
 }
 function Header(
-  { player, menu, toggle, home }: {
+  { player, menu, toggle, home, walletSlot }: {
     player: Player;
+    walletSlot: (element: HTMLSpanElement | null) => void;
     menu: boolean;
     toggle: () => void;
     home: () => void;
@@ -2576,7 +2619,7 @@ function Header(
           <small>DEMO BALANCE</small>
           <strong>{player.rf} $RF</strong>
         </div>
-        <WalletPanel />
+        <span className="wallet-slot" ref={walletSlot} />
         <button
           className="menu"
           onClick={toggle}
@@ -2591,9 +2634,9 @@ function Header(
 }
 function FriendFace({ friend }: { friend: Friend }) {
   return (
-    <div className="friend-face" style={{ background: friend.color }}>
-      <img src={publicAsset("/rare-friends.svg")} alt="" />
-      <i>{friend.id.split("-").at(-1)}</i>
+    <div className={`friend-face${friend.imageUrl ? " owned-portrait" : ""}`} style={{ background: friend.color }}>
+      <img src={friend.imageUrl || publicAsset("/rare-friends.svg")} alt={friend.name} />
+      <i>{friend.tokenId || friend.id.split("-").at(-1)}</i>
     </div>
   );
 }
@@ -2838,7 +2881,7 @@ function EconomyDocs({ go }: { go: (page: Page) => void }) {
           <article><h3>MARKETPLACE</h3><p>Adventure and raid loot can be listed. A sale charges 5%, rounded up to at least 1 RF. The seller receives price minus fee; the fee enters the reward pool.</p><code>seller proceeds = price − market fee</code></article>
           <article><h3>FOUR-WALLET RAIDS</h3><p>Four equal entries create the raid pot. Successful payout depends on raw-power contribution and the difficulty multiplier. Failed pots stay in the ecosystem.</p><code>payout = pot × contribution × multiplier</code></article>
           <article><h3>PARTY BATTLES</h3><p>Roles, equipment, composition, potions, and optional wagers create competitive item utility. RF wagers redistribute RF between players rather than feeding the pool.</p><p>Every match randomly selects one of eight equally likely arenas: {ARENA_LANDS.join(", ")}. The land stays fixed for the entire fight. Each pet appears in the arena with a health bar that follows attacks, blocks, critical hits, healing, and knockouts.</p></article>
-          <article><h3>ARENA EFFICIENCY</h3><p>A pet whose land trait matches the arena gains 10% efficiency. Genesis pets always gain the same 10%, on every land. These bonuses do not stack. The bonus multiplies damage after armor and block, and Support healing, then rounds to the nearest whole HP. Healing cannot exceed maximum HP. Health, defense stats, potion preparation, and wager payouts do not receive an extra multiplier.</p><code>damage / healing = round(base amount × 1.10)</code><p>This rule applies to both sides of party battles. The local demo uses preset land traits; saved pets without a known land have no match bonus. Adventure and raid rules remain as described in their sections.</p></article>
+          <article><h3>ARENA EFFICIENCY</h3><p>A pet whose land trait matches the arena gains 10% efficiency. Genesis pets always gain the same 10%, on every land. These bonuses do not stack. The bonus multiplies damage after armor and block, and Support healing, then rounds to the nearest whole HP. Healing cannot exceed maximum HP. Health, defense stats, potion preparation, and wager payouts do not receive an extra multiplier.</p><code>damage / healing = round(base amount × 1.10)</code><p>This rule applies to both sides of party battles. Connected wallets use verified collection identity and on-chain scenery traits. Guest demo pets use preset traits; pets without a known scenery have no land-match bonus. Adventure and raid rules remain as described in their sections.</p></article>
           <article><h3>WATCH THE FIGHT</h3><p>Combat resolves once when you challenge a squad. The arena plays those recorded actions in order. Pause, advance one action, skip to the result, or replay without rerolling the land or consuming potions and settling wagers again. Reduced-motion users begin with playback paused.</p></article>
           <article><h3>GUILD WARS</h3><p>Adventure clears, raids, wins, sales, and preparation produce weekly points. A square-root population adjustment helps smaller guilds compete without erasing scale.</p><code>adjusted = raw × √(largest ÷ members)</code></article>
         </div>
@@ -3319,10 +3362,11 @@ function Friends(
               <span>
                 <small>
                   {f.collection}{" "}
-                  {f.collection === "Generation" ? `· GEN ${f.generation}` : ""}
+                  {f.collection !== "Genesis" ? `· GEN ${f.generation}` : ""}
                 </small>
                 <b>{f.name}</b>
                 <em>{f.family} family</em>
+                <em>{f.collection === "Genesis" ? "+10% in every arena" : petLand(f) ? `${petLand(f)} · +10% on matching land` : "Scenery unknown · no land bonus"}</em>
               </span>
               <div className="friend-actions">
                 <button

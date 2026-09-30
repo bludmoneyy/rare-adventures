@@ -15,6 +15,7 @@ await evaluate('document.querySelector(".wallet-trigger").focus();document.query
 await check('document.querySelector("dialog").open && document.querySelector("dialog").textContent.includes("No browser wallet")','no-wallet guidance');
 await evaluate(`window.mockWallet={accounts:['0x0000000000000000000000000000000000000001'],chain:'0x1',listeners:{},calls:[],on(e,f){(this.listeners[e]??=[]).push(f)},removeListener(e,f){this.listeners[e]=this.listeners[e].filter(x=>x!==f)},emit(e,v){this.listeners[e]?.forEach(f=>f(v))},async request(a){this.calls.push(a.method);if(a.method==='eth_requestAccounts'||a.method==='eth_accounts')return this.accounts;if(a.method==='eth_chainId')return this.chain;if(a.method==='eth_getBalance')return '0xde0b6b3a7640000';if(a.method==='wallet_switchEthereumChain'){this.chain=a.params[0].chainId;this.emit('chainChanged',this.chain);return null;}throw Error(a.method)}};window.dispatchEvent(new CustomEvent('eip6963:announceProvider',{detail:{info:{uuid:'mock',name:'Test Browser Wallet'},provider:window.mockWallet}}));`);
 await settle();
+await evaluate(`const originalFetch=window.fetch.bind(window);window.fetch=(input,options)=>String(input).includes('rpc.mainnet.chain.robinhood.com')?Promise.resolve(new Response(JSON.stringify({jsonrpc:'2.0',id:1,result:JSON.parse(options.body).method==='eth_chainId'?'0x1237':JSON.parse(options.body).method==='eth_blockNumber'?'0x3c2e09f':'0x'+''.padStart(64,'0')}))):originalFetch(input,options);`);
 await evaluate('[...document.querySelectorAll(".wallet-options button")].find(b=>b.textContent==="Test Browser Wallet").click()');await settle();
 await check('document.querySelector("dialog").textContent.includes("Different network")','wrong network shown');
 await evaluate('[...document.querySelectorAll("dialog button")].find(b=>b.textContent==="Switch to Robinhood Chain").click()');await settle();
@@ -25,7 +26,7 @@ await send('Emulation.setDeviceMetricsOverride',{width:375,height:812,deviceScal
 await check('document.documentElement.scrollWidth<=innerWidth','mobile page fits viewport');
 await check('document.querySelector("dialog").getBoundingClientRect().right<=innerWidth','mobile dialog fits viewport');
 await send('Page.captureScreenshot',{format:'png'}).then(r=>writeFile('/tmp/rare-wallet-mobile.png',Buffer.from(r.data,'base64')));
-await evaluate('document.querySelector(".wallet-title-row button").click()');
+await evaluate('document.querySelector(".wallet-title-row button").click()');await settle();
 await check('document.activeElement.classList.contains("wallet-trigger")','dialog restores focus');
 await check('(()=>{const b=document.querySelector(".wallet-trigger").getBoundingClientRect();return b.left>=0 && b.right<=innerWidth})()','mobile connect button fits');
 await evaluate('document.querySelector(".wallet-trigger").focus();document.querySelector(".wallet-trigger").click();[...document.querySelectorAll("dialog button")].find(b=>b.textContent==="Disconnect").click()');await settle();
